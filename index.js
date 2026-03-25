@@ -129,7 +129,7 @@ class MelCloudPlatform {
 									const defaultTempsFile = `${prefDir}/${name}_${device.id}_Temps`;
 
 									//device in melcloud
-									const melCloudDeviceData = melCloudDevicesData.Devices.find(d => d.DeviceID === device.id);
+									const melCloudDeviceData = melCloudDevicesData.Devices.find(d => String(d.DeviceID) === device.id);
 									melCloudDeviceData.Scenes = melCloudDevicesData.Scenes ?? [];
 
 									//presets
