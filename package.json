@@ -1,20 +1,23 @@
 {
-  "displayName": "MELCloud Control",
-  "name": "homebridge-melcloud-control",
+  "displayName": "MELCloud Control 4LR",
+  "name": "homebridge-melcloud-4lr",
   "version": "4.8.4",
-  "description": "Homebridge plugin to control Mitsubishi Air Conditioner, Heat Pump and Energy Recovery Ventilation.",
+  "description": "Homebridge plugin to control Mitsubishi Air Conditioner, Heat Pump and Energy Recovery Ventilation. Fork of homebridge-melcloud-control with fixed fan speed support.",
   "license": "MIT",
-  "author": "grzegorz914",
-  "maintainers": [
-    "grzegorz914"
+  "author": "DeReck16",
+  "contributors": [
+    {
+      "name": "grzegorz914",
+      "url": "https://github.com/grzegorz914/homebridge-melcloud-control"
+    }
   ],
-  "homepage": "https://github.com/grzegorz914/homebridge-melcloud-control#readme",
+  "homepage": "https://github.com/DeReck16/Homebridge-MelCloud4LR#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/grzegorz914/homebridge-melcloud-control.git"
+    "url": "git+https://github.com/DeReck16/Homebridge-MelCloud4LR.git"
   },
   "bugs": {
-    "url": "https://github.com/grzegorz914/homebridge-melcloud-control/issues"
+    "url": "https://github.com/DeReck16/Homebridge-MelCloud4LR/issues"
   },
   "type": "module",
   "exports": {
@@ -54,13 +57,9 @@
     "lossnay",
     "vrf",
     "mqtt",
-    "restful"
+    "restful",
+    "fixed-fan-speed"
   ],
-  "funding": {
-    "type": "Buy Coffee To",
-    "url": "https://buycoffee.to/grzegorz914"
-  },
-  "contributors": [],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   }

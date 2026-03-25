@@ -1,19 +1,19 @@
 {
-  "pluginAlias": "melcloudcontrol",
+  "pluginAlias": "melcloudcontrol4lr",
   "pluginType": "platform",
   "singular": true,
   "fixArrays": true,
   "strictValidation": true,
   "customUi": true,
-  "headerDisplay": "Plugin for Mitsubishi Air Conditioner, Heat Pump and Energy Recovery Ventilation connected to MELCloud and MELCloud Home. Devices are exposed to HomeKit as separate accessories and each needs to be manually [paired](https://github.com/grzegorz914/homebridge-melcloud-control/wiki#adding-to-homekit).",
-  "footerDisplay": "For documentation please see [GitHub repository](https://github.com/grzegorz914/homebridge-melcloud-control).",
+  "headerDisplay": "Plugin for Mitsubishi Air Conditioner, Heat Pump and Energy Recovery Ventilation connected to MELCloud and MELCloud Home. Fork of [homebridge-melcloud-control](https://github.com/grzegorz914/homebridge-melcloud-control) with fixed fan speed support.",
+  "footerDisplay": "For documentation please see [GitHub repository](https://github.com/DeReck16/Homebridge-MelCloud4LR). Based on [homebridge-melcloud-control](https://github.com/grzegorz914/homebridge-melcloud-control) by grzegorz914.",
   "schema": {
     "type": "object",
     "properties": {
       "name": {
         "title": "Platform",
         "type": "string",
-        "default": "MELCloud Control"
+        "default": "MELCloud Control 4LR"
       },
       "accounts": {
         "type": "array",
