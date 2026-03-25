@@ -416,6 +416,13 @@
                     "type": "boolean",
                     "description": "This enable support to update room temperature with MQTT or RESTFul."
                   },
+                  "fixedFanSpeed": {
+                    "title": "Fixed Fan Speed on Power On",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 5,
+                    "description": "Set a fixed fan speed (1–5) when turning on via HomeKit. Prevents the device from defaulting to automatic fan speed. Set to 0 to disable (default behaviour)."
+                  },
                   "presets": {
                     "title": "Presets",
                     "type": "array",

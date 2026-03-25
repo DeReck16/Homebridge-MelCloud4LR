@@ -44,6 +44,8 @@ class DeviceAta extends EventEmitter {
         this.overheatProtectionSupport = device.overheatProtectionSupport || false;
         this.holidayModeSupport = device.holidayModeSupport || false;
         this.remoteRoomTemperatureSupport = device.remoteRoomTemperatureSupport || false;
+        // fixedFanSpeed: 1-5 = use fixed fan speed when turning on via HomeKit, 0 = default (Auto)
+        this.fixedFanSpeed = (typeof device.fixedFanSpeed === 'number' && device.fixedFanSpeed >= 1 && device.fixedFanSpeed <= 5) ? device.fixedFanSpeed : 0;
         this.presets = presets;
         this.schedules = schedules;
         this.scenes = scenes;
@@ -281,6 +283,7 @@ class DeviceAta extends EventEmitter {
     async prepareAccessory() {
         try {
             const accountTypeMelCloud = this.accountTypeMelCloud;
+            const fixedFanSpeed = this.fixedFanSpeed;
             const deviceData = this.deviceData;
             const deviceId = this.deviceId;
             const deviceTypeString = this.deviceTypeString;
@@ -334,8 +337,16 @@ class DeviceAta extends EventEmitter {
                         .onSet(async (state) => {
                             try {
                                 const payload = { power: state ? true : false };
-                                if (this.logInfo) this.emit('info', `Set power: ${state ? 'On' : 'Off'}`);
-                                await this.melCloudAta.send(this.accountType, this.displayType, deviceData, payload);
+                                let flag = null;
+                                if (state && fixedFanSpeed > 0) {
+                                    const fanKeySet = accountTypeMelCloud ? 'fanSpeed' : 'setFanSpeed';
+                                    payload[fanKeySet] = fixedFanSpeed;
+                                    flag = AirConditioner.EffectiveFlags.SetFanSpeed;
+                                    if (this.logInfo) this.emit('info', `Set power: On (fixed fan speed: ${fixedFanSpeed})`);
+                                } else {
+                                    if (this.logInfo) this.emit('info', `Set power: ${state ? 'On' : 'Off'}`);
+                                }
+                                await this.melCloudAta.send(this.accountType, this.displayType, deviceData, payload, flag);
                             } catch (error) {
                                 if (this.logWarn) this.emit('warn', `Set power error: ${error}`);
                             };
