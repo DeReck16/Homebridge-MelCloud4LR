@@ -1776,7 +1776,7 @@ class DeviceAtw extends EventEmitter {
 
                     //accessory info
                     this.manufacturer = 'Mitsubishi';
-                    this.model = modelIndoor ? modelIndoor : modelOutdoor ? modelOutdoor : `${this.deviceTypeString} ${this.deviceId}`;
+                    this.model = (modelIndoor?.length > 1) ? modelIndoor : (modelOutdoor?.length > 1) ? modelOutdoor : `${this.deviceTypeString} ${this.deviceId}`;
                     this.serialNumber = serialNumber.toString();
                     this.firmwareRevision = firmwareAppVersion.toString();
 

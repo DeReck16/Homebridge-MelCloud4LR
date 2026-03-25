@@ -1453,7 +1453,7 @@ class DeviceAta extends EventEmitter {
 
                     //accessory info
                     this.manufacturer = 'Mitsubishi';
-                    this.model = modelIndoor ? modelIndoor : modelOutdoor ? modelOutdoor : `${this.deviceTypeString}`;
+                    this.model = (modelIndoor?.length > 1) ? modelIndoor : (modelOutdoor?.length > 1) ? modelOutdoor : `${this.deviceTypeString}`;
                     this.serialNumber = serialNumber.toString();
                     this.firmwareRevision = firmwareAppVersion.toString();
 
