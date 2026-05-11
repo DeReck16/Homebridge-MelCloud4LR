@@ -3,7 +3,7 @@ import MelCloudAta from './melcloudata.js';
 import RestFul from './restful.js';
 import Mqtt from './mqtt.js';
 import Functions from './functions.js';
-import { TemperatureDisplayUnits, AirConditioner, DeviceType } from './constants.js';
+import { TemperatureDisplayUnits, AirConditioner, DeviceType, ApiUrls } from './constants.js';
 let Accessory, Characteristic, Service, Categories, AccessoryUUID;
 
 class DeviceAta extends EventEmitter {
@@ -30,6 +30,7 @@ class DeviceAta extends EventEmitter {
         this.device = device;
         this.deviceId = device.id;
         this.deviceName = device.name;
+        this.uuidSuffix = device.uuidSuffix || '';
         this.deviceTypeString = DeviceType[device.type];
         this.displayType = device.displayType;
         this.heatDryFanMode = device.heatDryFanMode || 1; //NONE, HEAT, DRY, FAN
@@ -46,6 +47,10 @@ class DeviceAta extends EventEmitter {
         this.remoteRoomTemperatureSupport = device.remoteRoomTemperatureSupport || false;
         // fixedFanSpeed: 1-5 = use fixed fan speed when turning on via HomeKit, 0 = default (Auto)
         this.fixedFanSpeed = (typeof device.fixedFanSpeed === 'number' && device.fixedFanSpeed >= 1 && device.fixedFanSpeed <= 5) ? device.fixedFanSpeed : 0;
+        // fixedSwingMode: true = force swing on when turning on via HomeKit, ignore HomeKit's auto-reset
+        this.fixedSwingMode = device.fixedSwingMode === true;
+        this.lastPowerOnTime = 0;   // timestamp of last power-on command (for fixedFanSpeed/fixedSwingMode guard)
+        this.lastCommandTime = 0;   // timestamp of last power command (for debounce)
         this.presets = presets;
         this.schedules = schedules;
         this.scenes = scenes;
@@ -284,6 +289,7 @@ class DeviceAta extends EventEmitter {
         try {
             const accountTypeMelCloud = this.accountTypeMelCloud;
             const fixedFanSpeed = this.fixedFanSpeed;
+            const fixedSwingMode = this.fixedSwingMode;
             const deviceData = this.deviceData;
             const deviceId = this.deviceId;
             const deviceTypeString = this.deviceTypeString;
@@ -309,7 +315,7 @@ class DeviceAta extends EventEmitter {
             //accessory
             if (this.logDebug) this.emit('debug', `Prepare accessory`);
             const accessoryName = deviceName;
-            const accessoryUUID = AccessoryUUID.generate(accountName + deviceId.toString());
+            const accessoryUUID = AccessoryUUID.generate(accountName + deviceId.toString() + this.uuidSuffix);
             const accessoryCategory = Categories.AIR_CONDITIONER;
             const accessory = new Accessory(accessoryName, accessoryUUID, accessoryCategory);
 
@@ -336,17 +342,88 @@ class DeviceAta extends EventEmitter {
                         })
                         .onSet(async (state) => {
                             try {
+                                const now = Date.now();
+                                const currentPower = this.accessory.power;
+                                if (state === currentPower && now - this.lastCommandTime < 11000) {
+                                    if (this.logInfo) this.emit('info', `Set power: ${state ? 'On' : 'Off'} (debounced, skipped)`);
+                                    return;
+                                }
+                                this.lastCommandTime = now;
+                                if (state) this.lastPowerOnTime = now;
                                 const payload = { power: state ? true : false };
                                 let flag = null;
+                                const logParts = [`Set power: ${state ? 'On' : 'Off'}`];
                                 if (state && fixedFanSpeed > 0) {
-                                    const fanKeySet = accountTypeMelCloud ? 'fanSpeed' : 'setFanSpeed';
+                                    const fanKeySet = 'setFanSpeed';
                                     payload[fanKeySet] = fixedFanSpeed;
-                                    flag = AirConditioner.EffectiveFlags.SetFanSpeed;
-                                    if (this.logInfo) this.emit('info', `Set power: On (fixed fan speed: ${fixedFanSpeed})`);
-                                } else {
-                                    if (this.logInfo) this.emit('info', `Set power: ${state ? 'On' : 'Off'}`);
+                                    if (accountTypeMelCloud) payload.automaticFanSpeed = false;
+                                    flag = (flag || 0) + AirConditioner.EffectiveFlags.SetFanSpeed;
+                                    logParts.push(`fixed fan speed: ${fixedFanSpeed}`);
                                 }
+                                if (state && fixedSwingMode && supportsSwingFunction) {
+                                    payload.vaneVerticalDirection = 7;
+                                    if (supportsWideVane) {
+                                        payload.vaneHorizontalDirection = 12;
+                                        flag = (flag || 0) + AirConditioner.EffectiveFlags.VaneVerticalVaneHorizontal;
+                                    } else {
+                                        flag = (flag || 0) + AirConditioner.EffectiveFlags.VaneVertical;
+                                    }
+                                    logParts.push('fixed swing: on');
+                                }
+                                if (this.logInfo) this.emit('info', logParts.join(' | '));
                                 await this.melCloudAta.send(this.accountType, this.displayType, deviceData, payload, flag);
+                                if (state && accountTypeMelCloud && (fixedFanSpeed > 0 || (fixedSwingMode && supportsSwingFunction))) {
+                                    // Build fan+swing correction payload (no Power flag — same as MELCloud app fan-only change)
+                                    const makeFanPayload = () => {
+                                        const p = { _noPowerFlag: true };
+                                        let f = 0;
+                                        if (fixedFanSpeed > 0) {
+                                            p.setFanSpeed = fixedFanSpeed;
+                                            p.automaticFanSpeed = false;
+                                            f += AirConditioner.EffectiveFlags.SetFanSpeed;
+                                        }
+                                        if (fixedSwingMode && supportsSwingFunction) {
+                                            p.vaneVerticalDirection = 7;
+                                            if (supportsWideVane) {
+                                                p.vaneHorizontalDirection = 12;
+                                                f += AirConditioner.EffectiveFlags.VaneVerticalVaneHorizontal;
+                                            } else {
+                                                f += AirConditioner.EffectiveFlags.VaneVertical;
+                                            }
+                                        }
+                                        return { p, f };
+                                    };
+                                    // Early corrections at T+5s, T+8s, T+12s: send FAN ONLY (no vane) to match
+                                    // what MELCloud app sends for a fan-only change (EffectiveFlags=SetFanSpeed only).
+                                    // The AC may reject vane=Swing during startup, causing the whole combined command
+                                    // to be ignored. Separating fan from vane avoids this.
+                                    // Do NOT check this.accessory.power — the MELCloud poll at T+5s may briefly return
+                                    // OperationMode=0 (cloud hasn't registered power-on yet) which would set power=false.
+                                    const earlyCorrect = async (label) => {
+                                        if (Date.now() - this.lastPowerOnTime > 60000) return;
+                                        try {
+                                            if (fixedFanSpeed > 0) {
+                                                const fanOnlyPayload = { _noPowerFlag: true, setFanSpeed: fixedFanSpeed, automaticFanSpeed: false };
+                                                await this.melCloudAta.send(this.accountType, this.displayType, this.deviceData, fanOnlyPayload, AirConditioner.EffectiveFlags.SetFanSpeed);
+                                            }
+                                            if (this.logInfo) this.emit('info', `Early correction @T+${label}s: fan=${fixedFanSpeed > 0 ? fixedFanSpeed : '-'}`);
+                                        } catch (e) { if (this.logInfo) this.emit('info', `Early correction @T+${label}s error: ${e.message}`); }
+                                    };
+                                    setTimeout(() => earlyCorrect(5), 5000);
+                                    setTimeout(() => earlyCorrect(8), 8000);
+                                    setTimeout(() => earlyCorrect(12), 12000);
+                                    // Blind corrections at T+33s and T+38s as backup (after AC init window)
+                                    const blindCorrect = async (label) => {
+                                        if (!this.accessory.power) return;
+                                        try {
+                                            const { p, f } = makeFanPayload();
+                                            await this.melCloudAta.send(this.accountType, this.displayType, this.deviceData, p, f);
+                                            if (this.logInfo) this.emit('info', `Blind correction @T+${label}s: fan=${fixedFanSpeed > 0 ? fixedFanSpeed : '-'} swing=${fixedSwingMode ? 'on' : '-'}`);
+                                        } catch (e) { if (this.logInfo) this.emit('info', `Blind correction @T+${label}s error: ${e.message}`); }
+                                    };
+                                    setTimeout(() => blindCorrect(33), 33000);
+                                    setTimeout(() => blindCorrect(38), 38000);
+                                }
                             } catch (error) {
                                 if (this.logWarn) this.emit('warn', `Set power error: ${error}`);
                             };
@@ -406,11 +483,15 @@ class DeviceAta extends EventEmitter {
                             .onSet(async (value) => {
                                 try {
                                     const payload = {};
-                                    const fanKeySet = accountTypeMelCloud ? 'fanSpeed' : 'setFanSpeed';
+                                    const fanKeySet = 'setFanSpeed';
                                     const max = numberOfFanSpeeds;
                                     const minValue = supportsAutomaticFanSpeed ? 0 : 1;
+                                    // if fixedFanSpeed is set and we are within 3s of power-on, ignore HomeKit's auto (0) override
+                                    if (fixedFanSpeed > 0 && value === 0 && Date.now() - this.lastPowerOnTime < 10000) {
+                                        if (this.logInfo) this.emit('info', `Set fan speed: ignored auto override within 10s of power-on (fixed: ${fixedFanSpeed})`);
+                                        return;
+                                    }
                                     const clampedValue = Math.min(Math.max(value, minValue), max);
-
                                     payload[fanKeySet] = clampedValue;
                                     if (this.logInfo) this.emit('info', `Set fan speed mode: ${AirConditioner.FanSpeedMapEnumToString[clampedValue]}`);
                                     await this.melCloudAta.send(this.accountType, this.displayType, deviceData, payload, AirConditioner.EffectiveFlags.SetFanSpeed);
@@ -429,6 +510,10 @@ class DeviceAta extends EventEmitter {
                             })
                             .onSet(async (value) => {
                                 try {
+                                    if (fixedSwingMode && value === 0 && Date.now() - this.lastPowerOnTime < 10000) {
+                                        if (this.logInfo) this.emit('info', `Set swing mode: ignored auto override within 10s of power-on (fixed: swing)`);
+                                        return;
+                                    }
                                     const payload = {};
                                     if (supportsWideVane) payload.vaneHorizontalDirection = value ? 12 : 0;
                                     payload.vaneVerticalDirection = value ? 7 : 0;
@@ -1227,7 +1312,7 @@ class DeviceAta extends EventEmitter {
                             .onSet(async (state) => {
                                 try {
                                     const fanKey = accountTypeMelCloud ? 'FanSpeed' : 'SetFanSpeed';
-                                    const fanKeySet = accountTypeMelCloud ? 'fanSpeed' : 'setFanSpeed';
+                                    const fanKeySet = 'setFanSpeed';
                                     let payload = {};
                                     let flag = null;
                                     switch (mode) {
@@ -1996,6 +2081,35 @@ class DeviceAta extends EventEmitter {
                         this.emit('info', `Temperature display unit: ${obj.temperatureUnit}`);
                         this.emit('info', `Lock physical controls: ${obj.lockPhysicalControl ? 'Locked' : 'Unlocked'}`);
                         if (!accountTypeMelCloud) this.emit('info', `WiFi signal strength: ${deviceData.Rssi}dBm`);
+                    }
+
+                    // Reactive correction: if AC is on and fan/swing drifted from fixed setting, correct immediately
+                    const fanMismatch = power && this.fixedFanSpeed > 0 && setFanSpeed !== this.fixedFanSpeed;
+                    const swingMismatch = power && this.fixedSwingMode && supportsSwingFunction && currentSwingMode === 0;
+                    if ((fanMismatch || swingMismatch) && Date.now() - this.lastPowerOnTime > 5000) {
+                        const rePayload = { _noPowerFlag: true };
+                        let reFlag = 0;
+                        if (fanMismatch) {
+                            rePayload.setFanSpeed = this.fixedFanSpeed;
+                            if (accountTypeMelCloud) rePayload.automaticFanSpeed = false;
+                            reFlag += AirConditioner.EffectiveFlags.SetFanSpeed;
+                        }
+                        if (swingMismatch) {
+                            rePayload.vaneVerticalDirection = 7;
+                            if (supportsWideVane) {
+                                rePayload.vaneHorizontalDirection = 12;
+                                reFlag += AirConditioner.EffectiveFlags.VaneVerticalVaneHorizontal;
+                            } else {
+                                reFlag += AirConditioner.EffectiveFlags.VaneVertical;
+                            }
+                        }
+                        try {
+                            await this.melCloudAta.send(this.accountType, this.displayType, deviceData, rePayload, reFlag);
+                            const parts = [];
+                            if (fanMismatch) parts.push(`fan: auto → ${this.fixedFanSpeed}`);
+                            if (swingMismatch) parts.push('swing: auto → on');
+                            if (this.logInfo) this.emit('info', `Drift corrected: ${parts.join(', ')}`);
+                        } catch (e) {}
                     }
                 })
                 .on('success', (success) => this.emit('success', success))

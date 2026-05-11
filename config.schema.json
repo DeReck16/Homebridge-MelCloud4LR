@@ -423,6 +423,17 @@
                     "maximum": 5,
                     "description": "Set a fixed fan speed (1–5) when turning on via HomeKit. Prevents the device from defaulting to automatic fan speed. Set to 0 to disable (default behaviour)."
                   },
+                  "fixedSwingMode": {
+                    "title": "Fixed Swing Mode on Power On",
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If enabled, the plugin forces vertical and (if supported) horizontal vanes to Swing whenever the device is turned on via HomeKit. Also re-applies Swing if MELCloud / HomeKit auto-resets it within 10 s, and corrects drift on every poll."
+                  },
+                  "uuidSuffix": {
+                    "title": "Accessory UUID Suffix",
+                    "type": "string",
+                    "description": "Optional suffix appended to the accessory UUID. Change this to force HomeKit to re-pair the accessory (useful after enabling fixedFanSpeed / fixedSwingMode if HomeKit caches old behaviour). Leave empty for default."
+                  },
                   "presets": {
                     "title": "Presets",
                     "type": "array",
@@ -2659,7 +2670,10 @@
                                     "accounts[].ataDevices[].frostProtectionSupport",
                                     "accounts[].ataDevices[].overheatProtectionSupport",
                                     "accounts[].ataDevices[].holidayModeSupport",
-                                    "accounts[].ataDevices[].remoteRoomTemperatureSupport"
+                                    "accounts[].ataDevices[].remoteRoomTemperatureSupport",
+                                    "accounts[].ataDevices[].fixedFanSpeed",
+                                    "accounts[].ataDevices[].fixedSwingMode",
+                                    "accounts[].ataDevices[].uuidSuffix"
                                   ]
                                 },
                                 {

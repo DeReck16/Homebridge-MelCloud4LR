@@ -213,7 +213,9 @@ class MelCloudAta extends EventEmitter {
                                 payload.setTemperature = (deviceData.Device.DefaultCoolingSetTemperature + deviceData.Device.DefaultHeatingSetTemperature) / 2;
                             }
 
-                            flag = !flag ? AirConditioner.EffectiveFlags.Power : AirConditioner.EffectiveFlags.Power + flag;
+                            const noPowerFlag = payload._noPowerFlag === true;
+                            delete payload._noPowerFlag;
+                            flag = !flag ? AirConditioner.EffectiveFlags.Power : (noPowerFlag ? flag : AirConditioner.EffectiveFlags.Power + flag);
                             payload = this.functions.toPascalCaseKeys({
                                 ...payload,
                                 power: payload.power !== false,
@@ -221,6 +223,15 @@ class MelCloudAta extends EventEmitter {
                                 effectiveFlags: flag,
                                 hasPendingCommand: true,
                             });
+                            // SetAta API uses short key names (no "Direction" suffix)
+                            if (payload.VaneVerticalDirection !== undefined) {
+                                payload.VaneVertical = payload.VaneVerticalDirection;
+                                delete payload.VaneVerticalDirection;
+                            }
+                            if (payload.VaneHorizontalDirection !== undefined) {
+                                payload.VaneHorizontal = payload.VaneHorizontalDirection;
+                                delete payload.VaneHorizontalDirection;
+                            }
 
                             path = ApiUrls.Post.Ata;
                             update = true;
@@ -228,11 +239,17 @@ class MelCloudAta extends EventEmitter {
                     }
 
                     if (this.logDebug) this.emit('debug', `Send data: ${JSON.stringify(payload, null, 2)}`);
-                    await this.client(path, { method: 'POST', data: payload });
+                    const response = await this.client(path, { method: 'POST', data: payload });
 
                     //update state
                     if (update) {
+                        const rData = response?.data;
+                        if (this.logDebug) this.emit('debug', `SetAta confirmed: Fan=${rData?.SetFanSpeed ?? '?'} AutoFan=${rData?.AutomaticFanSpeed ?? '?'} VaneV=${rData?.VaneVertical ?? '?'} Error=${rData?.ErrorCode ?? '?'}`);
                         deviceData.Device = { ...deviceData.Device, ...payload };
+                        // Sync read keys from write keys so optimistic state is consistent
+                        if (payload.SetFanSpeed !== undefined) deviceData.Device.FanSpeed = payload.SetFanSpeed;
+                        if (payload.VaneVertical !== undefined) deviceData.Device.VaneVerticalDirection = payload.VaneVertical;
+                        if (payload.VaneHorizontal !== undefined) deviceData.Device.VaneHorizontalDirection = payload.VaneHorizontal;
                         setTimeout(() => {
                             this.updateState('request', deviceData);
                         }, 500);
